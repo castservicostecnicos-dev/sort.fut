@@ -20,6 +20,8 @@ import {
   WhatsAppImportModal,
   WhatsAppImportPayload,
 } from './components/WhatsAppImportModal';
+import { PWAInstallBanner } from './components/PWAInstallBanner';
+import { OfflineIndicator } from './components/OfflineIndicator';
 
 const STORAGE_KEYS = {
   PLAYERS: 'societypro_players_v1',
@@ -449,6 +451,9 @@ export default function App() {
           />
         )}
       </main>
+
+      <PWAInstallBanner />
+      <OfflineIndicator />
 
       {/* Mobile Bottom Navigation Bar (Thumb Zone, compact 64px <= 15% cap) */}
       <nav
