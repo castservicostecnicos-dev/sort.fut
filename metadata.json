@@ -1,0 +1,6 @@
+{
+  "name": "SocietyPro — Sorteio de Times",
+  "description": "Aplicativo para cadastro de jogadores, avaliação técnica por estrelas e sorteio aleatório ou equilibrado de times de futebol society.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
