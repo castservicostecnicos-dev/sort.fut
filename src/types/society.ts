@@ -36,6 +36,7 @@ export interface DrawResult {
   teamCount: number;
   isExceptionalSize: boolean;
   teams: Team[];
+  reserves?: Player[];
   scoreDifference: number;
 }
 

@@ -115,6 +115,15 @@ export function DrawResultView({
             <span>Society {result.playersPerTeam} por equipe</span>
             <span aria-hidden="true">·</span>
             <span>{result.teamCount} times</span>
+            {result.reserves && result.reserves.length > 0 && (
+              <>
+                <span aria-hidden="true">·</span>
+                <span className="text-amber-300 font-medium">
+                  {result.reserves.length}{' '}
+                  {result.reserves.length === 1 ? 'reserva' : 'reservas'}
+                </span>
+              </>
+            )}
             {result.isExceptionalSize && (
               <>
                 <span aria-hidden="true">·</span>
@@ -220,11 +229,11 @@ export function DrawResultView({
               <p className="text-sm text-white truncate">
                 Trocando{' '}
                 <strong className="text-emerald-300">{swapOrigin.player.name}</strong>{' '}
-                (Time {swapOrigin.teamIdx + 1}) — toque em um jogador de outro time
+                ({swapOrigin.teamIdx === -1 ? 'Reserva' : `Time ${swapOrigin.teamIdx + 1}`}) — toque em outro jogador para trocar
               </p>
             ) : (
               <p className="text-sm text-[#A5B6AB]">
-                Troca manual: toque em um jogador e depois em outro de outra equipe para trocar e recalcular.
+                Troca manual: toque em um jogador e depois em outro de outra equipe ou da reserva para trocar e recalcular.
               </p>
             )}
           </div>
@@ -380,6 +389,103 @@ export function DrawResultView({
           );
         })}
       </div>
+
+      {/* Reserves Section */}
+      {result.reserves && result.reserves.length > 0 && (
+        <motion.section
+          key={`${result.id}-reserves`}
+          aria-label="Reservas"
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{
+            duration: 0.22,
+            delay: result.teams.length * 0.055,
+            ease: [0.16, 1, 0.3, 1],
+          }}
+          className="bg-[#111914] border border-white/10 rounded-2xl overflow-hidden"
+        >
+          <div className="px-5 py-4 border-b border-white/10 flex flex-wrap items-center justify-between gap-3">
+            <div className="space-y-0.5">
+              <h2 className="font-display text-2xl font-extrabold uppercase tracking-wide text-white">
+                Reservas ({result.reserves.length})
+              </h2>
+              <p className="text-xs text-[#92A398]">
+                Aguardando a próxima partida · Toque para trocar manualmente com qualquer titular
+              </p>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 divide-y sm:divide-y-0 sm:gap-px bg-white/10">
+            {result.reserves.map((player) => {
+              const isGK = player.position === 'goalkeeper';
+              const isSelectedForSwap = swapOrigin?.player.id === player.id;
+              const isSwapTarget =
+                swapOrigin !== null && swapOrigin.teamIdx !== -1;
+
+              return (
+                <button
+                  key={player.id}
+                  type="button"
+                  onClick={() => handlePlayerClick(-1, player)}
+                  className={`w-full px-5 py-3.5 min-h-[54px] flex items-center justify-between gap-3 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-emerald-400 ${
+                    isSelectedForSwap
+                      ? 'bg-emerald-500/15'
+                      : isSwapTarget
+                        ? 'bg-[#111914] hover:bg-white/[0.06]'
+                        : 'bg-[#111914] hover:bg-white/[0.03]'
+                  }`}
+                >
+                  <div className="flex items-center gap-3 min-w-0">
+                    <span
+                      className={`shrink-0 w-7 h-7 rounded-lg flex items-center justify-center ${
+                        isSelectedForSwap
+                          ? 'bg-emerald-500 text-[#090F0B]'
+                          : isGK
+                            ? 'bg-amber-400/15 text-amber-300'
+                            : 'bg-white/5 text-[#8FA396]'
+                      }`}
+                    >
+                      {isGK ? (
+                        <Shield className="w-4 h-4" />
+                      ) : (
+                        <User className="w-4 h-4" />
+                      )}
+                    </span>
+
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-baseline gap-x-1.5">
+                        <span
+                          className={`text-sm font-semibold truncate ${
+                            isSelectedForSwap ? 'text-emerald-300' : 'text-white'
+                          }`}
+                        >
+                          {player.name}
+                        </span>
+                        {player.complement && (
+                          <span className="text-xs text-[#8FA396] truncate">
+                            ({player.complement})
+                          </span>
+                        )}
+                      </div>
+                      <span
+                        className={`text-xs ${
+                          isGK ? 'text-amber-300/90 font-medium' : 'text-[#84998B]'
+                        }`}
+                      >
+                        {isGK ? 'Goleiro · Reserva' : 'Linha · Reserva'}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="shrink-0">
+                    <StarDisplay rating={player.rating} size="sm" />
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </motion.section>
+      )}
 
       {/* Bottom Quick Action on Mobile */}
       <div className="flex sm:hidden pt-1">

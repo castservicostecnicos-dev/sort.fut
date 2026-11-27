@@ -81,7 +81,8 @@ export function DrawView({
 
   const requiredPlayers = playersPerTeam * teamCount;
   const diff = selectedPlayers.length - requiredPlayers;
-  const isExactFormatMatch = diff === 0;
+  const hasReserves = diff > 0;
+  const isExactOrWithReserves = diff >= 0;
   const isDivisibleByTeams =
     selectedPlayers.length >= teamCount && selectedPlayers.length % teamCount === 0;
   const hasEnoughGoalkeepers = selectedGoalkeepers.length >= teamCount;
@@ -89,7 +90,8 @@ export function DrawView({
   const startDrawFlow = () => {
     if (selectedPlayers.length < teamCount) return;
 
-    if (!isExactFormatMatch) {
+    // Only prompt size_mismatch when there are FEWER players than requiredPlayers
+    if (!isExactOrWithReserves) {
       setAcceptedExceptionalSize(false);
       setValidationStage('size_mismatch');
       return;
@@ -119,7 +121,7 @@ export function DrawView({
 
   const handleConfirmGkShortage = () => {
     setValidationStage(null);
-    onRunDraw(acceptedExceptionalSize || !isDivisibleByTeams);
+    onRunDraw(diff < 0 && (acceptedExceptionalSize || !isDivisibleByTeams));
   };
 
   const handleReshuffle = () => {
@@ -377,7 +379,7 @@ export function DrawView({
                 <span className="text-[#9FB0A5]">Selecionados agora</span>
                 <span
                   className={`font-mono font-bold tabular-nums ${
-                    isExactFormatMatch ? 'text-emerald-400' : 'text-amber-300'
+                    isExactOrWithReserves ? 'text-emerald-400' : 'text-amber-300'
                   }`}
                 >
                   {selectedPlayers.length} jogadores
@@ -410,20 +412,26 @@ export function DrawView({
                     Selecione pelo menos {teamCount} jogadores para montar {teamCount} times.
                   </span>
                 </div>
-              ) : isExactFormatMatch ? (
+              ) : diff === 0 ? (
                 <div className="p-3.5 rounded-xl bg-emerald-500/10 border border-emerald-500/30 flex items-start gap-2.5 text-xs text-emerald-200 leading-relaxed">
                   <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
                   <span>
                     Quantidade exata para {teamCount} times de {playersPerTeam} jogadores.
                   </span>
                 </div>
+              ) : hasReserves ? (
+                <div className="p-3.5 rounded-xl bg-emerald-500/10 border border-emerald-500/30 flex items-start gap-2.5 text-xs text-emerald-200 leading-relaxed">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+                  <span>
+                    Serão sorteados <strong>{teamCount} times de {playersPerTeam} jogadores</strong> ({requiredPlayers} titulares) e{' '}
+                    <strong>{diff} {diff === 1 ? 'jogador ficará na reserva' : 'jogadores ficarão na reserva'}</strong>.
+                  </span>
+                </div>
               ) : (
                 <div className="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-start gap-2.5 text-xs text-amber-200 leading-relaxed">
                   <AlertCircle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
                   <span>
-                    {diff < 0
-                      ? `Faltam ${Math.abs(diff)} jogador(es) para fechar ${teamCount} times de ${playersPerTeam}.`
-                      : `Há ${diff} jogador(es) a mais que o formato ${teamCount} × ${playersPerTeam}.`}
+                    Faltam {Math.abs(diff)} jogador(es) para fechar {teamCount} times de {playersPerTeam}.
                     {!isDivisibleByTeams &&
                       ' Com esse total, as equipes ficariam com quantidades desiguais (exige autorização ao sortear).'}
                   </span>

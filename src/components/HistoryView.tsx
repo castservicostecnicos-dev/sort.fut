@@ -94,6 +94,15 @@ export function HistoryView({
                       <span>
                         {entry.teamCount} times ({entry.playersPerTeam} por equipe)
                       </span>
+                      {entry.reserves && entry.reserves.length > 0 && (
+                        <>
+                          <span aria-hidden="true">·</span>
+                          <span>
+                            {entry.reserves.length}{' '}
+                            {entry.reserves.length === 1 ? 'reserva' : 'reservas'}
+                          </span>
+                        </>
+                      )}
                       <span aria-hidden="true">·</span>
                       <span className="font-mono text-amber-300">
                         Dif: {formatScore(entry.scoreDifference)} ★
@@ -185,6 +194,40 @@ export function HistoryView({
                         </ul>
                       </div>
                     ))}
+                    {entry.reserves && entry.reserves.length > 0 && (
+                      <div className="bg-[#0B120E] border border-white/10 rounded-xl p-3.5 space-y-2.5">
+                        <div className="flex items-center justify-between border-b border-white/10 pb-2">
+                          <span className="font-display text-lg font-bold uppercase text-amber-300">
+                            Reservas
+                          </span>
+                          <span className="font-mono text-xs font-semibold text-[#9FB0A5] tabular-nums">
+                            {entry.reserves.length}{' '}
+                            {entry.reserves.length === 1 ? 'jogador' : 'jogadores'}
+                          </span>
+                        </div>
+                        <ul className="space-y-1.5">
+                          {entry.reserves.map((p) => (
+                            <li
+                              key={p.id}
+                              className="flex items-center justify-between gap-2 text-xs"
+                            >
+                              <span className="flex items-center gap-1.5 text-[#D5E0D8] truncate">
+                                {p.position === 'goalkeeper' ? (
+                                  <Shield className="w-3 h-3 text-amber-300 shrink-0" />
+                                ) : (
+                                  <User className="w-3 h-3 text-[#7E9285] shrink-0" />
+                                )}
+                                <span className="truncate">
+                                  {p.name}
+                                  {p.complement ? ` (${p.complement})` : ''}
+                                </span>
+                              </span>
+                              <StarDisplay rating={p.rating} size="sm" />
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
                   </div>
                 )}
               </article>

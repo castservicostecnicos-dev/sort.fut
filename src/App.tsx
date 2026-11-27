@@ -301,18 +301,33 @@ export default function App() {
     if (!currentDraw) return;
 
     const teamsPlayers = currentDraw.teams.map((t) => [...t.players]);
-    const idxA = teamsPlayers[fromTeamIdx]?.findIndex((p) => p.id === fromPlayerId);
-    const idxB = teamsPlayers[toTeamIdx]?.findIndex((p) => p.id === toPlayerId);
+    const reserves = [...(currentDraw.reserves ?? [])];
 
-    if (idxA === undefined || idxA < 0 || idxB === undefined || idxB < 0) return;
+    const getList = (idx: number) => (idx === -1 ? reserves : teamsPlayers[idx]);
+    const listA = getList(fromTeamIdx);
+    const listB = getList(toTeamIdx);
 
-    const playerA = teamsPlayers[fromTeamIdx][idxA];
-    const playerB = teamsPlayers[toTeamIdx][idxB];
+    const idxA = listA?.findIndex((p) => p.id === fromPlayerId);
+    const idxB = listB?.findIndex((p) => p.id === toPlayerId);
 
-    teamsPlayers[fromTeamIdx][idxA] = playerB;
-    teamsPlayers[toTeamIdx][idxB] = playerA;
+    if (
+      !listA ||
+      !listB ||
+      idxA === undefined ||
+      idxA < 0 ||
+      idxB === undefined ||
+      idxB < 0
+    ) {
+      return;
+    }
 
-    const updated = recalculateDrawResult(currentDraw, teamsPlayers);
+    const playerA = listA[idxA];
+    const playerB = listB[idxB];
+
+    listA[idxA] = playerB;
+    listB[idxB] = playerA;
+
+    const updated = recalculateDrawResult(currentDraw, teamsPlayers, reserves);
     setCurrentDraw(updated);
     setHistory((prev) =>
       prev.map((item) => (item.id === updated.id ? updated : item))

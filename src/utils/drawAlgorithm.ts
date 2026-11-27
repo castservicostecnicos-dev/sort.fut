@@ -79,16 +79,22 @@ export function buildTeam(number: number, rawPlayers: Player[]): Team {
 
 export function recalculateDrawResult(
   draw: DrawResult,
-  updatedTeamsPlayers: Player[][]
+  updatedTeamsPlayers: Player[][],
+  updatedReserves?: Player[]
 ): DrawResult {
   const teams = updatedTeamsPlayers.map((players, idx) => buildTeam(idx + 1, players));
   const scores = teams.map((t) => Math.round(t.totalScore * 2));
   const maxScore = scores.length > 0 ? Math.max(...scores) : 0;
   const minScore = scores.length > 0 ? Math.min(...scores) : 0;
+  const reserves =
+    updatedReserves !== undefined
+      ? sortTeamPlayers(updatedReserves)
+      : draw.reserves;
 
   return {
     ...draw,
     teams,
+    reserves,
     scoreDifference: (maxScore - minScore) / 2,
   };
 }
@@ -333,6 +339,42 @@ function drawBalancedTeams(selectedPlayers: Player[], teamCount: number): Player
   return bestCandidates[Math.floor(Math.random() * bestCandidates.length)];
 }
 
+function splitStartersAndReserves(
+  uniquePlayers: Player[],
+  requiredCount: number,
+  teamCount: number
+): { starters: Player[]; reserves: Player[] } {
+  if (uniquePlayers.length <= requiredCount) {
+    return { starters: uniquePlayers, reserves: [] };
+  }
+
+  const gks = shuffleArray(uniquePlayers.filter((p) => p.position === 'goalkeeper'));
+  const outs = shuffleArray(uniquePlayers.filter((p) => p.position === 'outfield'));
+
+  // Prioritize up to 1 goalkeeper per starting team so starters aren't left without a keeper
+  const gkStarterCount = Math.min(gks.length, teamCount, requiredCount);
+  const startingGks = gks.slice(0, gkStarterCount);
+  const leftoverGks = gks.slice(gkStarterCount);
+
+  const remainingSlots = requiredCount - startingGks.length;
+  const startingOuts = outs.slice(0, Math.min(outs.length, remainingSlots));
+  const leftoverOuts = outs.slice(startingOuts.length);
+
+  const starters = [...startingGks, ...startingOuts];
+  const reserves = [...leftoverGks, ...leftoverOuts];
+
+  // If outfielders weren't enough to fill all required slots, promote leftover GKs
+  while (starters.length < requiredCount && reserves.length > 0) {
+    const promoted = reserves.shift();
+    if (promoted) starters.push(promoted);
+  }
+
+  return {
+    starters,
+    reserves: sortTeamPlayers(reserves),
+  };
+}
+
 export function executeDraw(params: {
   players: Player[];
   mode: DrawMode;
@@ -341,11 +383,19 @@ export function executeDraw(params: {
   isExceptionalSize: boolean;
 }): DrawResult {
   const { players, mode, playersPerTeam, teamCount, isExceptionalSize } = params;
+  const uniquePlayers = deduplicatePlayers(players);
+  const requiredCount = playersPerTeam * teamCount;
+
+  const { starters, reserves } = splitStartersAndReserves(
+    uniquePlayers,
+    requiredCount,
+    teamCount
+  );
 
   const teamsPlayers =
     mode === 'random'
-      ? drawRandomTeams(players, teamCount)
-      : drawBalancedTeams(players, teamCount);
+      ? drawRandomTeams(starters, teamCount)
+      : drawBalancedTeams(starters, teamCount);
 
   const teams = teamsPlayers.map((teamPlayers, idx) => buildTeam(idx + 1, teamPlayers));
   const scores = teams.map((t) => Math.round(t.totalScore * 2));
@@ -360,6 +410,7 @@ export function executeDraw(params: {
     teamCount,
     isExceptionalSize,
     teams,
+    reserves,
     scoreDifference: (maxScore - minScore) / 2,
   };
 }
@@ -428,10 +479,29 @@ export function formatDrawForClipboard(
     return `\n${teamBadge} *${team.name.toUpperCase()}* (${team.players.length} jogadores)\n${lines.join('\n')}${totalLine}`;
   });
 
+  const reservesBlock =
+    draw.reserves && draw.reserves.length > 0
+      ? `\n\n🪑 *RESERVAS (${draw.reserves.length})*\n${draw.reserves
+          .map((p) => {
+            const label = formatPlayerLabel(p);
+            const posPrefix = includePositions
+              ? p.position === 'goalkeeper'
+                ? '🧤 Goleiro: '
+                : '🏃 Linha: '
+              : '• ';
+            if (!includeStars) return `${posPrefix}${label}`;
+            const starPart = includeStarIcons
+              ? `${formatStarsEmoji(p.rating)} (${formatScore(p.rating)})`
+              : `${formatScore(p.rating)}⭐`;
+            return `${posPrefix}${label} — ${starPart}`;
+          })
+          .join('\n')}`
+      : '';
+
   const footer = includeTotals
     ? `\n\n⚖️ *Diferença entre equipes:* ${formatScore(draw.scoreDifference)} estrela(s)`
     : '';
 
-  return `${titleLine}\n${subtitle}\n${teamBlocks.join('\n')}${footer}`;
+  return `${titleLine}\n${subtitle}\n${teamBlocks.join('\n')}${reservesBlock}${footer}`;
 }
 
