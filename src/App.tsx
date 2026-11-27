@@ -272,6 +272,10 @@ export default function App() {
     });
 
     setIsWhatsAppModalOpen(false);
+    if (payload.goToDraw) {
+      setCurrentDraw(null);
+      setActiveTab('draw');
+    }
   };
 
   // Draw Handlers

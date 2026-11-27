@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   AlertTriangle,
+  ArrowRight,
   CheckSquare,
   ClipboardPaste,
   Shield,
@@ -12,12 +13,13 @@ import { Player, Position, StarRating } from '../types/society';
 import {
   ParsedWhatsAppPlayer,
   SAMPLE_WHATSAPP_LIST,
+  findMatchingExistingPlayer,
+  normalizeForMatch,
   parseWhatsAppList,
 } from '../utils/whatsappParser';
 import {
   STAR_OPTIONS,
   formatScore,
-  normalizeIdentifier,
 } from '../utils/drawAlgorithm';
 import { StarDisplay } from './StarRating';
 
@@ -31,6 +33,7 @@ export interface WhatsAppImportPayload {
   }>;
   matchedExistingIds: string[];
   onlySelectImported: boolean;
+  goToDraw?: boolean;
 }
 
 interface WhatsAppImportModalProps {
@@ -48,13 +51,11 @@ export function WhatsAppImportModal({
 }: WhatsAppImportModalProps) {
   const [rawText, setRawText] = useState('');
   const [parsedItems, setParsedItems] = useState<ParsedWhatsAppPlayer[]>([]);
-  const [onlySelectImported, setOnlySelectImported] = useState(true);
 
   useEffect(() => {
     if (!open) return;
     setRawText('');
     setParsedItems([]);
-    setOnlySelectImported(true);
   }, [open]);
 
   useEffect(() => {
@@ -80,19 +81,30 @@ export function WhatsAppImportModal({
     const included = parsedItems.filter((item) => item.includeInImport);
     const conflictIds = new Set<string>();
     const seenKeys = new Map<string, string>();
+    const seenExistingIds = new Map<string, string>();
 
     const existingMap = new Map<string, Player>();
     for (const p of existingPlayers) {
-      const key = `${normalizeIdentifier(p.name)}::${normalizeIdentifier(p.complement)}`;
+      const key = `${normalizeForMatch(p.name)}::${normalizeForMatch(p.complement)}`;
       existingMap.set(key, p);
     }
 
     for (const item of included) {
-      const normName = normalizeIdentifier(item.name);
-      const normComp = normalizeIdentifier(item.complement);
+      const normName = normalizeForMatch(item.name);
+      const normComp = normalizeForMatch(item.complement);
       if (!normName) {
         conflictIds.add(item.tempId);
         continue;
+      }
+
+      if (item.matchedExistingId) {
+        const prevExistingRow = seenExistingIds.get(item.matchedExistingId);
+        if (prevExistingRow) {
+          conflictIds.add(prevExistingRow);
+          conflictIds.add(item.tempId);
+        } else {
+          seenExistingIds.set(item.matchedExistingId, item.tempId);
+        }
       }
 
       const key = `${normName}::${normComp}`;
@@ -115,11 +127,20 @@ export function WhatsAppImportModal({
 
     const newCount = included.filter((i) => !i.matchedExistingId).length;
     const matchedCount = included.filter((i) => Boolean(i.matchedExistingId)).length;
+    const matchedIdsSet = new Set(
+      included
+        .map((i) => i.matchedExistingId)
+        .filter((id): id is string => Boolean(id))
+    );
+    const existingExcludedCount = existingPlayers.filter(
+      (p) => !matchedIdsSet.has(p.id)
+    ).length;
 
     return {
       includedCount: included.length,
       newCount,
       matchedCount,
+      existingExcludedCount,
       conflictIds,
       hasConflicts: conflictIds.size > 0,
     };
@@ -135,21 +156,22 @@ export function WhatsAppImportModal({
       prev.map((item) => {
         if (item.tempId !== tempId) return item;
         const updated = { ...item, ...patch };
-        // If user edited name or complement of a matched row, re-check if it still matches that existing player
-        if (
-          (patch.name !== undefined || patch.complement !== undefined) &&
-          updated.matchedExistingId
-        ) {
-          const matchedPlayer = existingPlayers.find(
-            (p) => p.id === updated.matchedExistingId
+        if (patch.name !== undefined || patch.complement !== undefined) {
+          const matched = findMatchingExistingPlayer(
+            updated.name,
+            updated.complement,
+            updated.position,
+            existingPlayers,
+            false
           );
-          if (
-            matchedPlayer &&
-            (normalizeIdentifier(updated.name) !==
-              normalizeIdentifier(matchedPlayer.name) ||
-              normalizeIdentifier(updated.complement) !==
-                normalizeIdentifier(matchedPlayer.complement))
-          ) {
+          if (matched) {
+            updated.matchedExistingId = matched.id;
+            updated.position = matched.position;
+            updated.rating = matched.rating;
+          } else {
+            if (item.matchedExistingId) {
+              updated.rating = 3.5;
+            }
             updated.matchedExistingId = undefined;
           }
         }
@@ -158,7 +180,7 @@ export function WhatsAppImportModal({
     );
   };
 
-  const handleConfirmImport = () => {
+  const handleConfirmImport = (goToDraw: boolean) => {
     if (validation.includedCount === 0 || validation.hasConflicts) return;
 
     const included = parsedItems.filter((item) => item.includeInImport);
@@ -179,7 +201,8 @@ export function WhatsAppImportModal({
     onImport({
       newPlayers,
       matchedExistingIds,
-      onlySelectImported,
+      onlySelectImported: true,
+      goToDraw,
     });
   };
 
@@ -201,7 +224,7 @@ export function WhatsAppImportModal({
               Importar Lista do WhatsApp
             </h2>
             <p className="text-xs text-[#92A398]">
-              Cole a lista do grupo para cadastrar novos jogadores e convocar os participantes da partida.
+              Cole a lista do WhatsApp como estiver: emojis, números, @ e símbolos são removidos automaticamente para manter só o nome.
             </p>
           </div>
           <button
@@ -263,30 +286,27 @@ export function WhatsAppImportModal({
                 <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-xs text-[#9FB0A5] tabular-nums">
                   <span>
                     <strong className="text-white">{validation.includedCount}</strong>{' '}
-                    selecionados
-                  </span>
-                  <span aria-hidden="true">·</span>
-                  <span className="text-emerald-400 font-medium">
-                    {validation.newCount} novos cadastros
+                    na lista final
                   </span>
                   <span aria-hidden="true">·</span>
                   <span>{validation.matchedCount} já cadastrados</span>
+                  <span aria-hidden="true">·</span>
+                  <span className="text-emerald-400 font-medium">
+                    {validation.newCount} novos (3,5 ★)
+                  </span>
+                  {validation.existingExcludedCount > 0 && (
+                    <>
+                      <span aria-hidden="true">·</span>
+                      <span className="text-[#8FA396]">
+                        {validation.existingExcludedCount} cadastrados fora desta lista (serão desmarcados)
+                      </span>
+                    </>
+                  )}
                 </div>
 
-                <button
-                  type="button"
-                  onClick={() => setOnlySelectImported((prev) => !prev)}
-                  className="inline-flex items-center gap-2 text-xs font-medium text-[#D5E0D8] hover:text-white text-left"
-                >
-                  <span className={onlySelectImported ? 'text-emerald-400' : 'text-[#667B6E]'}>
-                    {onlySelectImported ? (
-                      <CheckSquare className="w-4 h-4" />
-                    ) : (
-                      <Square className="w-4 h-4" />
-                    )}
-                  </span>
-                  <span>Convocar apenas os jogadores desta lista para hoje</span>
-                </button>
+                <span className="text-xs font-medium text-emerald-400">
+                  Apenas esta lista ficará marcada para o sorteio
+                </span>
               </div>
 
               {validation.hasConflicts && (
@@ -452,10 +472,10 @@ export function WhatsAppImportModal({
 
         {/* Footer */}
         <div className="px-5 sm:px-6 py-4 border-t border-white/10 bg-[#0E1611] flex flex-col-reverse sm:flex-row sm:items-center justify-between gap-3 shrink-0">
-          <span className="text-xs text-[#889B8F] hidden sm:inline">
-            Jogadores já cadastrados mantêm suas estrelas atuais sem duplicar.
+          <span className="text-xs text-[#889B8F] hidden lg:inline">
+            Novos entram com 3,5 ★; cadastrados fora da lista ficam desmarcados.
           </span>
-          <div className="flex flex-col-reverse sm:flex-row gap-2.5">
+          <div className="flex flex-col-reverse sm:flex-row gap-2.5 w-full lg:w-auto justify-end">
             <button
               type="button"
               onClick={onClose}
@@ -465,11 +485,20 @@ export function WhatsAppImportModal({
             </button>
             <button
               type="button"
-              onClick={handleConfirmImport}
+              onClick={() => handleConfirmImport(false)}
               disabled={validation.includedCount === 0 || validation.hasConflicts}
-              className="min-h-[46px] px-6 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 disabled:cursor-not-allowed text-sm font-bold text-white transition-colors whitespace-nowrap"
+              className="min-h-[46px] px-4 py-2.5 rounded-xl border border-white/15 bg-[#16221B] hover:bg-[#1D2D23] disabled:opacity-40 disabled:cursor-not-allowed text-sm font-semibold text-white transition-colors whitespace-nowrap"
             >
-              Confirmar e incluir ({validation.includedCount})
+              Salvar elenco ({validation.includedCount})
+            </button>
+            <button
+              type="button"
+              onClick={() => handleConfirmImport(true)}
+              disabled={validation.includedCount < 2 || validation.hasConflicts}
+              className="min-h-[46px] px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 disabled:cursor-not-allowed text-sm font-bold text-white inline-flex items-center justify-center gap-2 transition-colors whitespace-nowrap"
+            >
+              <span>Montar e sortear ({validation.includedCount})</span>
+              <ArrowRight className="w-4 h-4" />
             </button>
           </div>
         </div>

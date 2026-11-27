@@ -23,7 +23,8 @@ const WAITING_SECTION_RE =
 const METADATA_LINE_RE =
   /^(?:[\p{Emoji}\s•\-*]*)?(?:local|quadra|campo|arena|endere[cç]o|hor[aá]rio|hora|data|dia|valor|pre[cç]o|pix|chave|obs|observa[cç][aã]o|link|regras?|uniforme|colete)\s*:/iu;
 
-const NOISE_ONLY_RE = /^[\s\-_=*~•.|/\\⚽🥅🧤🏃📅🕒📍💰✅☑️✔️❌🔥🏆🥇🥈🥉👏🙌💪⚡]+$/u;
+const NOISE_ONLY_RE =
+  /^[\s\-_=*~•.|/\\⚽🥅🧤🏃📅🕒📍💰✅☑️✔️❌🔥🏆🥇🥈🥉👏🙌💪⚡]+$/u;
 
 const PAYMENT_OR_STATUS_TOKENS = new Set([
   'pago',
@@ -36,6 +37,65 @@ const PAYMENT_OR_STATUS_TOKENS = new Set([
   'certo',
   'dentro',
 ]);
+
+export function normalizeForMatch(value: string): string {
+  return value
+    .trim()
+    .replace(/\s+/g, ' ')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase();
+}
+
+export function findMatchingExistingPlayer(
+  name: string,
+  complement: string,
+  position: Position,
+  existingPlayers: Player[],
+  complementIsPositionHint = false
+): Player | undefined {
+  const normName = normalizeForMatch(name);
+  const normComp = normalizeForMatch(complement);
+  if (!normName) return undefined;
+
+  // 1) Exact match on (name + complement) accent-insensitive
+  const exact = existingPlayers.find(
+    (p) =>
+      normalizeForMatch(p.name) === normName &&
+      normalizeForMatch(p.complement) === normComp
+  );
+  if (exact) return exact;
+
+  // 2) Full combined identity match (e.g. "Gabriel (Silva)" vs registered "Gabriel Silva")
+  if (normComp) {
+    const combinedInput = normalizeForMatch(`${name} ${complement}`);
+    const combinedMatch = existingPlayers.find(
+      (p) =>
+        normalizeForMatch(`${p.name} ${p.complement}`) === combinedInput ||
+        normalizeForMatch(p.name) === combinedInput
+    );
+    if (combinedMatch) return combinedMatch;
+  }
+
+  // 3) If no specific complement (or complement came solely from a position tag like "(Goleiro)" / "- gol"),
+  //    match by unique name or unique (name + position)
+  if (!normComp || complementIsPositionHint) {
+    const sameNamePlayers = existingPlayers.filter(
+      (p) => normalizeForMatch(p.name) === normName
+    );
+    if (sameNamePlayers.length === 1) {
+      return sameNamePlayers[0];
+    }
+    if (sameNamePlayers.length > 1) {
+      const samePos = sameNamePlayers.filter((p) => p.position === position);
+      if (samePos.length === 1) {
+        return samePos[0];
+      }
+    }
+  }
+
+  return undefined;
+}
 
 function clampStarRating(val: number): StarRating {
   const clamped = Math.min(5, Math.max(0.5, Math.round(val * 2) / 2));
@@ -51,7 +111,8 @@ function extractRatingFromLine(text: string): {
   // Match explicit star emojis e.g. ⭐⭐⭐⭐ or ⭐⭐⭐½
   const starEmojiMatch = cleaned.match(/((?:⭐|★)+)(½)?/u);
   if (starEmojiMatch) {
-    const count = Array.from(starEmojiMatch[1]).length + (starEmojiMatch[2] ? 0.5 : 0);
+    const count =
+      Array.from(starEmojiMatch[1]).length + (starEmojiMatch[2] ? 0.5 : 0);
     cleaned = cleaned.replace(starEmojiMatch[0], ' ').trim();
     return { cleaned, rating: clampStarRating(count) };
   }
@@ -74,20 +135,50 @@ function extractRatingFromLine(text: string): {
   return { cleaned };
 }
 
+export function stripNonNameTokens(text: string): string {
+  let s = text;
+
+  // Strip emojis, pictographs, hearts, stars, variation selectors, ZWJ, keycaps, and Unicode symbols
+  s = s.replace(
+    /[\p{Extended_Pictographic}\p{Emoji_Presentation}\p{S}\u200B-\u200D\uFE0E\uFE0F\u20E3\u{1F3FB}-\u{1F3FF}]/gu,
+    ' '
+  );
+
+  // Strip all numbers/digits anywhere (e.g. "Fulano 10", "10 Sérgio", "01")
+  s = s.replace(/\d+/g, ' ');
+
+  // Strip @, #, *, _, punctuation clutter, and ordinal indicators
+  s = s.replace(/[@#*_•▪▫➤➢👉°ºª№.,:;!?()[\]{}/\\|"`´~]+/g, ' ');
+
+  // Replace standalone dashes between spaces with spaces, keep intra-word hyphens like Jean-Luc
+  s = s.replace(/\s+[-–—]+\s+/g, ' ');
+
+  // Trim leading/trailing dashes, apostrophes, and whitespace
+  s = s
+    .replace(/^[\s\-–—'’]+|[\s\-–—'’]+$/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  return s;
+}
+
 function cleanLinePrefixAndStatus(line: string): string {
   let s = line.trim();
 
   // Remove WhatsApp timestamp prefix if user copied message header e.g. "[20:15, 22/11/2026] Nome:"
-  s = s.replace(/^\[?\d{1,2}:\d{2}(?:,\s*\d{1,2}\/\d{1,2}(?:\/\d{2,4})?)?\]?\s*[^:]{1,35}:\s*/u, '');
-
-  // Strip leading bullets, emojis, and numbering like "1.", "01 -", "1)", "12-", "12 "
   s = s.replace(
-    /^(?:[•\-*▪▫➤➢👉⚽🧤🏃✅☑️✔️🔥]+|\(?\d{1,2}\)?\s*[-.):°º]?\s+)/u,
+    /^\[?\d{1,2}:\d{2}(?:,\s*\d{1,2}\/\d{1,2}(?:\/\d{2,4})?)?\]?\s*[^:]{1,35}:\s*/u,
+    ''
+  );
+
+  // Strip leading keycap digit emojis (1️⃣, 2️⃣, 🔟), bullets, emojis, and numbering like "1.", "1.Nome", "01 -", "1)", "12-"
+  s = s.replace(
+    /^(?:(?:\d\uFE0F?\u20E3|🔟)+|[•\-*▪▫➤➢👉⚽🧤🏃✅☑️✔️🔥]+|\(?\d{1,2}\)?\s*[-.):°º]+\s*|\(?\d{1,2}\)?\s+)/u,
     ''
   );
   // Second pass in case there was emoji + numbering e.g. "✅ 1 - Gabriel"
   s = s.replace(
-    /^(?:[•\-*▪▫➤➢👉⚽🧤🏃✅☑️✔️🔥]+|\(?\d{1,2}\)?\s*[-.):°º]+\s*)/u,
+    /^(?:(?:\d\uFE0F?\u20E3|🔟)+|[•\-*▪▫➤➢👉⚽🧤🏃✅☑️✔️🔥]+|\(?\d{1,2}\)?\s*[-.):°º]+\s*)/u,
     ''
   );
 
@@ -130,8 +221,8 @@ export function parseWhatsAppList(
       return;
     }
 
-    // Skip obvious title lines (e.g. "FUTEBOL QUARTA 20H" or "Pelada dos amigos") if not numbered and all-caps/contains time
-    const startsWithNumberOrBullet = /^(?:\d{1,2}\s*[-.):°º]|[-•*✅☑️✔️⚽🧤🏃])/u.test(
+    // Skip obvious title lines (e.g. "FUTEBOL QUARTA 20H" or "Pelada dos amigos") if not numbered
+    const startsWithNumberOrBullet = /^(?:\d{1,2}\s*[-.):°º]|\d\uFE0F?\u20E3|🔟|[-•*✅☑️✔️⚽🧤🏃])/u.test(
       trimmed
     );
     if (
@@ -157,6 +248,7 @@ export function parseWhatsAppList(
     // Detect position hints and complementary identification
     let position: Position = hasGkEmoji ? 'goalkeeper' : currentSectionPosition;
     let complement = '';
+    let complementIsPositionHint = false;
 
     // Check parenthetical or bracketed suffix: "Gabriel (Goleiro)" or "Gabriel Silva (Canhoto)"
     const parenMatch = cleaned.match(/\(([^)]+)\)|\[([^\]]+)\]/);
@@ -168,11 +260,16 @@ export function parseWhatsAppList(
       if (/^(?:goleiro|gol|gk|arqueiro)$/i.test(normInner)) {
         position = 'goalkeeper';
         complement = 'Goleiro';
+        complementIsPositionHint = true;
       } else if (/^(?:linha|jogador de linha)$/i.test(normInner)) {
         position = 'outfield';
         complement = 'Linha';
+        complementIsPositionHint = true;
       } else if (!PAYMENT_OR_STATUS_TOKENS.has(normInner)) {
-        complement = inner;
+        const cleanComp = stripNonNameTokens(inner);
+        if (cleanComp.length >= 2) {
+          complement = cleanComp;
+        }
       }
     }
 
@@ -185,48 +282,40 @@ export function parseWhatsAppList(
 
       if (/^(?:goleiro|gol|gk|arqueiro)$/i.test(normTail)) {
         position = 'goalkeeper';
-        if (!complement) complement = 'Goleiro';
+        if (!complement) {
+          complement = 'Goleiro';
+          complementIsPositionHint = true;
+        }
         cleaned = head;
       } else if (/^(?:linha|jogador de linha)$/i.test(normTail)) {
         position = 'outfield';
-        if (!complement) complement = 'Linha';
+        if (!complement) {
+          complement = 'Linha';
+          complementIsPositionHint = true;
+        }
         cleaned = head;
       } else if (PAYMENT_OR_STATUS_TOKENS.has(normTail)) {
         cleaned = head;
       } else if (!complement && tail.length <= 24) {
-        complement = tail;
+        const cleanTail = stripNonNameTokens(tail);
+        if (cleanTail.length >= 2) {
+          complement = cleanTail;
+        }
         cleaned = head;
       }
     }
 
-    const finalName = cleaned.replace(/\s+/g, ' ').trim();
-    if (!finalName || finalName.length < 2) return;
+    const finalName = stripNonNameTokens(cleaned);
+    const letterCount = (finalName.match(/\p{L}/gu) || []).length;
+    if (!finalName || letterCount < 2) return;
 
-    // Try matching existing player:
-    // 1) Exact match (name + complement)
-    const normName = normalizeIdentifier(finalName);
-    const normComp = normalizeIdentifier(complement);
-
-    let matched = existingPlayers.find(
-      (p) =>
-        normalizeIdentifier(p.name) === normName &&
-        normalizeIdentifier(p.complement) === normComp
+    const matched = findMatchingExistingPlayer(
+      finalName,
+      complement,
+      position,
+      existingPlayers,
+      complementIsPositionHint
     );
-
-    // 2) If imported line has no complement, check if there is a unique existing player with that exact name (and same position or unique overall)
-    if (!matched && !normComp) {
-      const sameNamePlayers = existingPlayers.filter(
-        (p) => normalizeIdentifier(p.name) === normName
-      );
-      if (sameNamePlayers.length === 1) {
-        matched = sameNamePlayers[0];
-      } else if (sameNamePlayers.length > 1) {
-        const samePos = sameNamePlayers.filter((p) => p.position === position);
-        if (samePos.length === 1) {
-          matched = samePos[0];
-        }
-      }
-    }
 
     results.push({
       tempId: `wa-${index}-${Math.random().toString(36).slice(2, 6)}`,
@@ -234,7 +323,7 @@ export function parseWhatsAppList(
       name: matched ? matched.name : finalName,
       complement: matched ? matched.complement : complement,
       position: matched ? matched.position : position,
-      rating: matched ? matched.rating : ratingExtracted.rating ?? 3,
+      rating: matched ? matched.rating : ratingExtracted.rating ?? 3.5,
       includeInImport: !isWaitingSection,
       selectedForMatch: !isWaitingSection,
       matchedExistingId: matched?.id,
